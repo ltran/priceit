@@ -84,3 +84,42 @@ func LyftAuth(client *http.Client, username, passwd string) Authorization {
 	json.NewDecoder(resp.Body).Decode(&auth)
 	return auth
 }
+
+type UberPrice struct {
+	LocalizedDisplayName string  `json:"localized_display_name,omitempty"`
+	Distance             float64 `json:"distance,omitempty"`
+	DisplayName          string  `json:"display_name,omitempty"`
+	ProductID            string  `json:"product_id,omitempty"`
+	HighEstimate         float64 `json:"high_estimate,omitempty"`
+	LowEstimate          float64 `json:"low_estimate,omitempty"`
+	Duration             int     `json:"duration,omitempty"`
+	Estimate             string  `json:"estimate,omitempty"`
+	CurrencyCode         string  `json:"currency_code,omitempty"`
+}
+type UberPrices struct {
+	Prices []UberPrice `json:"prices,omitempty"`
+}
+
+// UberCostEstimate obtain the cost estimate on for all Uber rides for origin to
+// destination.
+func UberCostEstimate(token string) UberPrices {
+	var est UberPrices
+	client := http.DefaultClient
+	req, err := http.NewRequest("GET", "https://api.uber.com/v1.2/estimates/price?start_latitude=37.7763&start_longitude=-122.3918&end_latitude=37.7972&end_longitude=-122.4533", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	req.Header.Set("Authorization", token)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&est); err != nil {
+		log.Fatal(err)
+	}
+
+	return est
+}
