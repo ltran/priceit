@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"time"
 )
 
 type Authorization struct {
-	TokenType   string `json:"token_type,omitempty"`
-	AccessToken string `json:"access_token,omitempty"`
-	ExpireIn    int    `json:"expire_in,omitempty"`
-	Scope       string `json:"scope,omitempty"`
+	TokenType    string    `json:"token_type,omitempty"`
+	AccessToken  string    `json:"access_token,omitempty"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
+	ExpireIn     int       `json:"expire_in,omitempty"`
+	Scope        string    `json:"scope,omitempty"`
+	ExpiresAt    time.Time `json:"-"`
 }
 
 type CostEstimate struct {
@@ -31,21 +34,85 @@ type CostEstimate struct {
 	EstimatedCostCentsMax      int         `json:"estimated_cost_cents_max,omitempty"`
 	CanRequestRide             bool        `json:"can_request_ride,omitempty"`
 }
-type LyftAvailabilityRideEstimate struct {
+type LyftRideEstimate struct {
 	CostEstimates []CostEstimate `json:"cost_estimates,omitempty"`
 }
 
-// LyftCostEstimate obtain the cost estimate on for all lyft rides for origin to
-// destination.
-func LyftCostEstimate(bearerToken string) LyftAvailabilityRideEstimate {
-	var est LyftAvailabilityRideEstimate
-	client := http.DefaultClient
+type Lyft struct {
+	auth     Authorization
+	client   *http.Client
+	username string
+	passwd   string
+}
+
+func NewLyft(username, passwd string) *Lyft {
+	return &Lyft{
+		username: username,
+		passwd:   passwd,
+	}
+}
+
+func (api *Lyft) SetClient(c *http.Client) {
+	api.client = c
+}
+
+func (api *Lyft) GetClient() *http.Client {
+	if api.client == nil {
+		return http.DefaultClient
+	}
+	return api.client
+}
+
+func (api *Lyft) getAuth() {
+	var (
+		auth   Authorization
+		client = api.GetClient()
+	)
+
+	body := []byte(`{"grant_type": "client_credentials", "scope": "public"}`)
+	req, err := http.NewRequest("POST", "https://api.lyft.com/oauth/token", bytes.NewReader(body))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	req.SetBasicAuth(api.username, api.passwd)
+	req.Header.Add("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	json.NewDecoder(resp.Body).Decode(&auth)
+	api.setAuth(auth)
+}
+
+func (api *Lyft) setAuth(auth Authorization) {
+	api.auth = auth
+	api.auth.ExpiresAt = time.Now().Add(time.Duration(auth.ExpireIn) * time.Second)
+}
+
+func (api *Lyft) stale() bool {
+	return api.auth.AccessToken == "" ||
+		(api.auth.RefreshToken != "" && api.auth.ExpiresAt.After(time.Now()))
+}
+
+func (api *Lyft) GetEstimate() LyftRideEstimate {
+	var (
+		est    LyftRideEstimate
+		client = api.GetClient()
+	)
+
+	if api.stale() {
+		api.getAuth()
+	}
+
 	req, err := http.NewRequest("GET", "https://api.lyft.com/v1/cost?start_lat=37.7763&start_lng=-122.3918&end_lat=37.7972&end_lng=-122.4533", nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	req.Header.Set("Authorization", bearerToken)
+	req.Header.Set("Authorization", api.auth.AccessToken)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -59,30 +126,19 @@ func LyftCostEstimate(bearerToken string) LyftAvailabilityRideEstimate {
 	return est
 }
 
-// LyftAuth sends a request to the Lyft authorization endpoint and supplies the
-// client id and client secret and obtains the access token.
-func LyftAuth(client *http.Client, username, passwd string) Authorization {
-	var auth Authorization
-	if client == nil {
-		client = http.DefaultClient
+type Uber struct {
+	client      *http.Client
+	serverToken string
+}
+
+func NewUber(serverToken string) *Uber {
+	return &Uber{
+		serverToken: serverToken,
 	}
+}
 
-	body := []byte(`{"grant_type": "client_credentials", "scope": "public"}`)
-	req, err := http.NewRequest("POST", "https://api.lyft.com/oauth/token", bytes.NewReader(body))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	req.SetBasicAuth(username, passwd)
-	req.Header.Add("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	json.NewDecoder(resp.Body).Decode(&auth)
-	return auth
+func (api *Uber) SetClient(c *http.Client) {
+	api.client = c
 }
 
 type UberPrice struct {
@@ -102,9 +158,12 @@ type UberPrices struct {
 
 // UberCostEstimate obtain the cost estimate on for all Uber rides for origin to
 // destination.
-func UberCostEstimate(token string) UberPrices {
-	var est UberPrices
-	client := http.DefaultClient
+func (api *Uber) UberCostEstimate(token string) UberPrices {
+	var (
+		est    UberPrices
+		client = api.GetClient()
+	)
+
 	req, err := http.NewRequest("GET", "https://api.uber.com/v1.2/estimates/price?start_latitude=37.7763&start_longitude=-122.3918&end_latitude=37.7972&end_longitude=-122.4533", nil)
 	if err != nil {
 		log.Fatal(err)
@@ -122,4 +181,11 @@ func UberCostEstimate(token string) UberPrices {
 	}
 
 	return est
+}
+
+func (api *Uber) GetClient() *http.Client {
+	if api.client == nil {
+		return http.DefaultClient
+	}
+	return api.client
 }
