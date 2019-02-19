@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 
 	"github.com/ltran/priceit/rideshare"
 	"github.com/spf13/viper"
@@ -19,14 +18,19 @@ func main() {
 
 	lyftcfg := viper.GetStringMapString("app.lyft")
 	ubercfg := viper.GetStringMapString("app.uber")
+	route := rideshare.Route{
+		SLat: 37.7763,
+		SLng: -122.3918,
+		ELat: 37.7972,
+		ELng: -122.4533,
+	}
 
 	lyft := rideshare.NewLyft(
 		lyftcfg["username"],
 		lyftcfg["password"],
 	)
-	lyft.SetClient(http.DefaultClient)
 
-	lyftEsts := lyft.GetEstimate()
+	lyftEsts := lyft.GetEstimate(route)
 	fmt.Println("--- lyft ---")
 	for _, ce := range lyftEsts.CostEstimates {
 		fmt.Printf("$%0.2f - $%0.2f\t%s\n", float32(ce.EstimatedCostCentsMin/100.0), float32(ce.EstimatedCostCentsMax/100.0), ce.DisplayName)
@@ -35,9 +39,8 @@ func main() {
 	uber := rideshare.NewUber(
 		ubercfg["server_token"],
 	)
-	uber.SetClient(http.DefaultClient)
 
-	uberEsts := uber.UberCostEstimate("Token " + ubercfg["server_token"])
+	uberEsts := uber.UberCostEstimate(route)
 	fmt.Println("--- uber ---")
 	for _, ce := range uberEsts.Prices {
 		fmt.Printf("$%0.2f - $%0.2f\t%s\n", ce.LowEstimate, ce.HighEstimate, ce.DisplayName)

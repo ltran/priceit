@@ -3,6 +3,7 @@ package rideshare
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -34,6 +35,7 @@ type CostEstimate struct {
 	EstimatedCostCentsMax      int         `json:"estimated_cost_cents_max,omitempty"`
 	CanRequestRide             bool        `json:"can_request_ride,omitempty"`
 }
+
 type LyftRideEstimate struct {
 	CostEstimates []CostEstimate `json:"cost_estimates,omitempty"`
 }
@@ -97,7 +99,9 @@ func (api *Lyft) stale() bool {
 		(api.auth.RefreshToken != "" && api.auth.ExpiresAt.After(time.Now()))
 }
 
-func (api *Lyft) GetEstimate() LyftRideEstimate {
+const LyftEstimateURL = "https://api.lyft.com/v1/cost?start_lat=%f&start_lng=%f&end_lat=%f&end_lng=%f"
+
+func (api *Lyft) GetEstimate(r Route) LyftRideEstimate {
 	var (
 		est    LyftRideEstimate
 		client = api.GetClient()
@@ -107,12 +111,12 @@ func (api *Lyft) GetEstimate() LyftRideEstimate {
 		api.getAuth()
 	}
 
-	req, err := http.NewRequest("GET", "https://api.lyft.com/v1/cost?start_lat=37.7763&start_lng=-122.3918&end_lat=37.7972&end_lng=-122.4533", nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf(LyftEstimateURL, r.SLat, r.SLng, r.ELat, r.ELng), nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	req.Header.Set("Authorization", api.auth.AccessToken)
+	req.Header.Set("Authorization", "Bearer "+api.auth.AccessToken)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -155,21 +159,29 @@ type UberPrice struct {
 type UberPrices struct {
 	Prices []UberPrice `json:"prices,omitempty"`
 }
+type Route struct {
+	SLat float64
+	SLng float64
+	ELat float64
+	ELng float64
+}
+
+const uberPriceURL = "https://api.uber.com/v1.2/estimates/price?start_latitude=%f&start_longitude=%f&end_latitude=%f&end_longitude=%f"
 
 // UberCostEstimate obtain the cost estimate on for all Uber rides for origin to
 // destination.
-func (api *Uber) UberCostEstimate(token string) UberPrices {
+func (api *Uber) UberCostEstimate(r Route) UberPrices {
 	var (
 		est    UberPrices
 		client = api.GetClient()
 	)
 
-	req, err := http.NewRequest("GET", "https://api.uber.com/v1.2/estimates/price?start_latitude=37.7763&start_longitude=-122.3918&end_latitude=37.7972&end_longitude=-122.4533", nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf(uberPriceURL, r.SLat, r.SLng, r.ELat, r.ELng), nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	req.Header.Set("Authorization", token)
+	req.Header.Set("Authorization", "Token "+api.serverToken)
 
 	resp, err := client.Do(req)
 	if err != nil {
