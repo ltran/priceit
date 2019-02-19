@@ -1,0 +1,6 @@
+app:
+  lyft:
+    username: username
+    password: password
+  uber:
+    server_token: server token
